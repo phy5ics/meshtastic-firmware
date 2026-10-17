@@ -16,7 +16,7 @@ class PaxMacTracker
   public:
     static constexpr size_t MAX_PENDING_MACS = 32;
     static constexpr size_t MAX_RECENT_MACS = 64;
-    static constexpr size_t MAX_MACS_PER_PACKET = 6;
+    static constexpr size_t MAX_MACS_PER_PACKET = 4;
 
   private:
     PaxDetectedMac pendingMacs[MAX_PENDING_MACS] = {};
@@ -39,5 +39,7 @@ class PaxMacTracker
     bool getLastSeen(PaxDetectedMac &out) const;
     void clear();
 
+    static bool isRandomizedMac(const uint8_t *mac);
+    static const char *getVendorName(const uint8_t *mac);
     static size_t formatMacMessage(const PaxDetectedMac *batch, size_t count, char *out, size_t outLen);
 };

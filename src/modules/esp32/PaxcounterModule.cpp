@@ -241,10 +241,18 @@ void PaxcounterModule::drawFrame(OLEDDisplay *display, OLEDDisplayUiState *state
     display->setTextAlignment(TEXT_ALIGN_CENTER);
     display->setFont(FONT_SMALL);
     if (hasLast) {
-        display->drawStringf(display->getWidth() / 2 + x, graphics::getTextPositions(display)[line++], buffer,
-                             "WiFi: %d BLE: %d\n%s %02X:%02X:%02X:%02X\nUptime: %lus", count_from_libpax.wifi_count,
-                             count_from_libpax.ble_count, (last.type == PAX_SNIFF_WIFI) ? "WiFi" : "BLE", last.mac[2],
-                             last.mac[3], last.mac[4], last.mac[5], (unsigned long)(millis() / 1000));
+        const char *vendor = PaxMacTracker::getVendorName(last.mac);
+        if (vendor && vendor[0] != '\0') {
+            display->drawStringf(display->getWidth() / 2 + x, graphics::getTextPositions(display)[line++], buffer,
+                                 "WiFi: %d BLE: %d\n%s %02X:%02X (%s)\nUptime: %lus", count_from_libpax.wifi_count,
+                                 count_from_libpax.ble_count, (last.type == PAX_SNIFF_WIFI) ? "WiFi" : "BLE", last.mac[4],
+                                 last.mac[5], vendor, (unsigned long)(millis() / 1000));
+        } else {
+            display->drawStringf(display->getWidth() / 2 + x, graphics::getTextPositions(display)[line++], buffer,
+                                 "WiFi: %d BLE: %d\n%s %02X:%02X:%02X:%02X\nUptime: %lus", count_from_libpax.wifi_count,
+                                 count_from_libpax.ble_count, (last.type == PAX_SNIFF_WIFI) ? "WiFi" : "BLE", last.mac[2],
+                                 last.mac[3], last.mac[4], last.mac[5], (unsigned long)(millis() / 1000));
+        }
     } else {
         display->drawStringf(display->getWidth() / 2 + x, graphics::getTextPositions(display)[line++], buffer,
                              "WiFi: %d\nBLE: %d\nUptime: %ds", count_from_libpax.wifi_count, count_from_libpax.ble_count,

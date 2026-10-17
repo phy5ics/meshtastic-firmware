@@ -3,11 +3,29 @@
 #include "Default.h"
 #include "MeshService.h"
 #include "PaxcounterModule.h"
+#include "airtime.h"
 #include "graphics/ScreenFonts.h"
 #include "graphics/SharedUIDisplay.h"
 #include "graphics/images.h"
 #include <esp_event.h>
 #include <freertos/timers.h>
+
+typedef enum { MAC_SNIFF_WIFI, MAC_SNIFF_BLE, MAC_SNIFF_BLE_ENS } snifftype_t;
+
+extern "C" {
+int __real__Z7mac_addPh11snifftype_t(uint8_t *paddr, snifftype_t sniff_type);
+int __wrap__Z7mac_addPh11snifftype_t(uint8_t *paddr, snifftype_t sniff_type);
+}
+
+int __wrap__Z7mac_addPh11snifftype_t(uint8_t *paddr, snifftype_t sniff_type)
+{
+    int added = __real__Z7mac_addPh11snifftype_t(paddr, sniff_type);
+    if (paxcounterModule && paxcounterModule->isActive()) {
+        PaxSniffType type = (sniff_type == MAC_SNIFF_WIFI) ? PAX_SNIFF_WIFI : PAX_SNIFF_BLE;
+        paxcounterModule->recordDetectedMac(paddr, type);
+    }
+    return added;
+}
 
 // Arduino WiFi has a wifiscan.h too, so declare the libpax scanner hooks here.
 void set_wifi_channels(uint16_t channels_map);
@@ -99,6 +117,45 @@ bool PaxcounterModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, m
     return false; // Let others look at this message also if they want. We don't do anything with received packets.
 }
 
+void PaxcounterModule::recordDetectedMac(const uint8_t *mac, PaxSniffType type)
+{
+    portENTER_CRITICAL(&macMux);
+    macTracker.recordDetectedMac(mac, type);
+    portEXIT_CRITICAL(&macMux);
+}
+
+bool PaxcounterModule::sendDetectedMacs(NodeNum dest)
+{
+    PaxDetectedMac batch[PaxMacTracker::MAX_MACS_PER_PACKET];
+    size_t count = 0;
+
+    portENTER_CRITICAL(&macMux);
+    count = macTracker.drainPendingMacs(batch, PaxMacTracker::MAX_MACS_PER_PACKET);
+    portEXIT_CRITICAL(&macMux);
+
+    if (count == 0)
+        return false;
+
+    char message[meshtastic_Constants_DATA_PAYLOAD_LEN];
+    PaxMacTracker::formatMacMessage(batch, count, message, sizeof(message));
+
+    meshtastic_MeshPacket *p = router->allocForSending();
+    if (!p)
+        return false;
+
+    p->to = dest;
+    p->decoded.want_response = false;
+    p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
+    p->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
+    p->decoded.payload.size = strlen(message);
+    memcpy(p->decoded.payload.bytes, message, p->decoded.payload.size);
+
+    LOG_INFO("PaxcounterModule: sending MAC broadcast (%d devices): %s", (int)count, message);
+    service->sendToMesh(p, RX_SRC_LOCAL, true);
+
+    return true;
+}
+
 meshtastic_MeshPacket *PaxcounterModule::allocReply()
 {
     meshtastic_Paxcount pl = meshtastic_Paxcount_init_default;
@@ -141,6 +198,8 @@ int32_t PaxcounterModule::runOnce()
             startWifiChannelTimer(configuration.LIBPAX_WIFI_CHANNEL_switch_interval);
         } else {
             sendInfo(NODENUM_BROADCAST);
+            while (airTime->isTxAllowedAirUtil() && sendDetectedMacs(NODENUM_BROADCAST)) {
+            }
         }
         return Default::getConfiguredOrDefaultMsScaled(moduleConfig.paxcounter.paxcounter_update_interval,
                                                        default_telemetry_broadcast_interval_secs, numOnlineNodes);
@@ -167,17 +226,30 @@ void PaxcounterModule::drawFrame(OLEDDisplay *display, OLEDDisplayUiState *state
     // === Header ===
     graphics::drawCommonHeader(display, x, y, titleStr);
 
-    char buffer[50];
+    char buffer[64];
     display->setTextAlignment(TEXT_ALIGN_LEFT);
     display->setFont(FONT_SMALL);
 
     libpax_counter_count(&count_from_libpax);
 
+    PaxDetectedMac last;
+    bool hasLast = false;
+    portENTER_CRITICAL(&macMux);
+    hasLast = macTracker.getLastSeen(last);
+    portEXIT_CRITICAL(&macMux);
+
     display->setTextAlignment(TEXT_ALIGN_CENTER);
     display->setFont(FONT_SMALL);
-    display->drawStringf(display->getWidth() / 2 + x, graphics::getTextPositions(display)[line++], buffer,
-                         "WiFi: %d\nBLE: %d\nUptime: %ds", count_from_libpax.wifi_count, count_from_libpax.ble_count,
-                         millis() / 1000);
+    if (hasLast) {
+        display->drawStringf(display->getWidth() / 2 + x, graphics::getTextPositions(display)[line++], buffer,
+                             "WiFi: %d BLE: %d\n%s %02X:%02X:%02X:%02X\nUptime: %lus", count_from_libpax.wifi_count,
+                             count_from_libpax.ble_count, (last.type == PAX_SNIFF_WIFI) ? "WiFi" : "BLE", last.mac[2],
+                             last.mac[3], last.mac[4], last.mac[5], (unsigned long)(millis() / 1000));
+    } else {
+        display->drawStringf(display->getWidth() / 2 + x, graphics::getTextPositions(display)[line++], buffer,
+                             "WiFi: %d\nBLE: %d\nUptime: %ds", count_from_libpax.wifi_count, count_from_libpax.ble_count,
+                             millis() / 1000);
+    }
     graphics::drawCommonFooter(display, x, y);
 }
 #endif // HAS_SCREEN

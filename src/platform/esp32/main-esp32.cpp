@@ -37,6 +37,15 @@
 void variant_shutdown() __attribute__((weak));
 void variant_shutdown() {}
 
+// Weak fallback for mac_add wrapper when PaxcounterModule is excluded from build.
+extern "C" int __wrap__Z7mac_addPh11snifftype_t(uint8_t *paddr, int sniff_type) __attribute__((weak));
+extern "C" int __wrap__Z7mac_addPh11snifftype_t(uint8_t *paddr, int sniff_type)
+{
+    (void)paddr;
+    (void)sniff_type;
+    return 0;
+}
+
 #if !defined(CONFIG_IDF_TARGET_ESP32S2) && !MESHTASTIC_EXCLUDE_BLUETOOTH
 static bool bluetoothMemoryReleased;
 static bool bluetoothMemoryReleaseWarned;

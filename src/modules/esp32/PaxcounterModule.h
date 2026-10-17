@@ -5,6 +5,8 @@
 #if defined(ARCH_ESP32) && !MESHTASTIC_EXCLUDE_PAXCOUNTER
 #include "../mesh/generated/meshtastic/paxcount.pb.h"
 #include "NodeDB.h"
+#include "modules/PaxMacTracker.h"
+#include <freertos/portmacro.h>
 #include <libpax_api.h>
 
 /**
@@ -16,18 +18,24 @@ class PaxcounterModule : private concurrency::OSThread, public ProtobufModule<me
     bool firstTime = true;
     bool reportedDataSent = true;
 
+    PaxMacTracker macTracker;
+    portMUX_TYPE macMux = portMUX_INITIALIZER_UNLOCKED;
+
     static void handlePaxCounterReportRequest();
 
   public:
     PaxcounterModule();
 
+    void recordDetectedMac(const uint8_t *mac, PaxSniffType type);
+    bool isActive() { return moduleConfig.paxcounter.enabled && !config.bluetooth.enabled && !config.network.wifi_enabled; }
+
   protected:
     struct count_payload_t count_from_libpax = {0, 0, 0};
     virtual int32_t runOnce() override;
     bool sendInfo(NodeNum dest = NODENUM_BROADCAST);
+    bool sendDetectedMacs(NodeNum dest = NODENUM_BROADCAST);
     virtual bool handleReceivedProtobuf(const meshtastic_MeshPacket &mp, meshtastic_Paxcount *p) override;
     virtual meshtastic_MeshPacket *allocReply() override;
-    bool isActive() { return moduleConfig.paxcounter.enabled && !config.bluetooth.enabled && !config.network.wifi_enabled; }
 #if HAS_SCREEN
     virtual bool wantUIFrame() override { return isActive(); }
     virtual void drawFrame(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y) override;

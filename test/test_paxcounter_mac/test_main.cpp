@@ -19,11 +19,15 @@
 //    "Random" rather than matching pseudo-random prefixes against registered IEEE OUIs.
 // 6. OUI binary search precision: known manufacturer OUIs must map to correct vendor strings while
 //    unregistered universal addresses cleanly return an empty vendor string.
+// 7. Paxcount protobuf serialization fidelity: populatePaxcountDevices() must populate meshtastic_Paxcount
+//    with MAC bytes, SniffType enum, and resolved vendor strings, and round-trip cleanly through nanopb.
 
 #include "Arduino.h"
 #include "TestUtil.h"
 #include "modules/PaxMacTracker.h"
 #include <cstring>
+#include <pb_decode.h>
+#include <pb_encode.h>
 #include <unity.h>
 
 static PaxMacTracker tracker;
@@ -212,12 +216,56 @@ void test_recent_cache_wrap_eviction(void)
     TEST_ASSERT_EQUAL_UINT32(PaxMacTracker::MAX_PENDING_MACS, tracker.getPendingCount());
 }
 
+void test_populate_and_encode_paxcount_protobuf(void)
+{
+    PaxDetectedMac batch[3] = {
+        {{0x24, 0x0A, 0xC4, 0x01, 0x02, 0x03}, PAX_SNIFF_WIFI}, // Espressif
+        {{0xDA, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F}, PAX_SNIFF_BLE},  // Random
+        {{0x00, 0x00, 0x01, 0x04, 0x05, 0x06}, PAX_SNIFF_WIFI}  // Unknown universal
+    };
+
+    meshtastic_Paxcount orig = meshtastic_Paxcount_init_default;
+    orig.wifi = 12;
+    orig.ble = 5;
+    orig.uptime = 3600;
+
+    size_t populated = PaxMacTracker::populatePaxcountDevices(batch, 3, orig);
+    TEST_ASSERT_EQUAL_UINT32(3, populated);
+    TEST_ASSERT_EQUAL_UINT32(3, orig.devices_count);
+
+    uint8_t buf[meshtastic_Paxcount_size];
+    pb_ostream_t ostream = pb_ostream_from_buffer(buf, sizeof(buf));
+    TEST_ASSERT_TRUE(pb_encode(&ostream, &meshtastic_Paxcount_msg, &orig));
+    TEST_ASSERT_GREATER_THAN(0, ostream.bytes_written);
+
+    meshtastic_Paxcount decoded = meshtastic_Paxcount_init_zero;
+    pb_istream_t istream = pb_istream_from_buffer(buf, ostream.bytes_written);
+    TEST_ASSERT_TRUE(pb_decode(&istream, &meshtastic_Paxcount_msg, &decoded));
+
+    TEST_ASSERT_EQUAL_UINT32(12, decoded.wifi);
+    TEST_ASSERT_EQUAL_UINT32(5, decoded.ble);
+    TEST_ASSERT_EQUAL_UINT32(3600, decoded.uptime);
+    TEST_ASSERT_EQUAL_UINT32(3, decoded.devices_count);
+
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(batch[0].mac, decoded.devices[0].mac, 6);
+    TEST_ASSERT_EQUAL_INT(meshtastic_Paxcount_SniffType_WIFI, decoded.devices[0].type);
+    TEST_ASSERT_EQUAL_STRING("Espressif", decoded.devices[0].vendor);
+
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(batch[1].mac, decoded.devices[1].mac, 6);
+    TEST_ASSERT_EQUAL_INT(meshtastic_Paxcount_SniffType_BLE, decoded.devices[1].type);
+    TEST_ASSERT_EQUAL_STRING("Random", decoded.devices[1].vendor);
+
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(batch[2].mac, decoded.devices[2].mac, 6);
+    TEST_ASSERT_EQUAL_INT(meshtastic_Paxcount_SniffType_WIFI, decoded.devices[2].type);
+    TEST_ASSERT_EQUAL_STRING("", decoded.devices[2].vendor);
+}
+
 void setup()
 {
     initializeTestEnvironment();
     UNITY_BEGIN();
     RUN_TEST(test_record_single_wifi_mac_with_vendor);
-    q RUN_TEST(test_record_single_ble_mac_randomized);
+    RUN_TEST(test_record_single_ble_mac_randomized);
     RUN_TEST(test_duplicate_mac_same_type_suppressed);
     RUN_TEST(test_same_mac_different_type_allowed);
     RUN_TEST(test_drain_pending_macs_batching_and_order);
@@ -225,6 +273,7 @@ void setup()
     RUN_TEST(test_multi_mac_message_formatting);
     RUN_TEST(test_format_mac_message_bounds_safety);
     RUN_TEST(test_recent_cache_wrap_eviction);
+    RUN_TEST(test_populate_and_encode_paxcount_protobuf);
     exit(UNITY_END());
 }
 

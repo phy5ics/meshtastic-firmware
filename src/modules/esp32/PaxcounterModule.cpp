@@ -136,21 +136,23 @@ bool PaxcounterModule::sendDetectedMacs(NodeNum dest)
     if (count == 0)
         return false;
 
-    char message[meshtastic_Constants_DATA_PAYLOAD_LEN];
-    PaxMacTracker::formatMacMessage(batch, count, message, sizeof(message));
+    meshtastic_Paxcount pl = meshtastic_Paxcount_init_default;
+    pl.wifi = count_from_libpax.wifi_count;
+    pl.ble = count_from_libpax.ble_count;
+    pl.uptime = millis() / 1000;
+    PaxMacTracker::populatePaxcountDevices(batch, count, pl);
 
-    meshtastic_MeshPacket *p = router->allocForSending();
+    meshtastic_MeshPacket *p = allocDataProtobuf(pl);
     if (!p)
         return false;
 
     p->to = dest;
     p->decoded.want_response = false;
     p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
-    p->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
-    p->decoded.payload.size = strlen(message);
-    memcpy(p->decoded.payload.bytes, message, p->decoded.payload.size);
 
-    LOG_INFO("PaxcounterModule: sending MAC broadcast (%d devices): %s", (int)count, message);
+    char message[meshtastic_Constants_DATA_PAYLOAD_LEN];
+    PaxMacTracker::formatMacMessage(batch, count, message, sizeof(message));
+    LOG_INFO("PaxcounterModule: sending MAC protobuf broadcast (%d devices): %s", (int)count, message);
     service->sendToMesh(p, RX_SRC_LOCAL, true);
 
     return true;

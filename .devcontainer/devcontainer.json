@@ -5,6 +5,7 @@
   "build": {
     "dockerfile": "Dockerfile"
   },
+  "postStartCommand": "git config --global --add safe.directory '*'",
   "features": {
     "ghcr.io/devcontainers/features/python:1": {
       "installTools": true,
@@ -17,7 +18,8 @@
         "ms-vscode.cpptools",
         "Jason2866.esp-decoder",
         "pioarduino.pioarduino-ide",
-        "Trunk.io"
+        "Trunk.io",
+        "google.google-antigravity"
       ],
       "unwantedRecommendations": [
         "ms-azuretools.vscode-docker",

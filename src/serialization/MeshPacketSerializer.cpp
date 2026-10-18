@@ -383,6 +383,21 @@ std::string MeshPacketSerializer::JsonSerialize(const meshtastic_MeshPacket *mp,
                 msgPayload["wifi_count"] = (Json::UInt)decoded->wifi;
                 msgPayload["ble_count"] = (Json::UInt)decoded->ble;
                 msgPayload["uptime"] = (Json::UInt)decoded->uptime;
+                if (decoded->devices_count > 0) {
+                    Json::Value devices(Json::arrayValue);
+                    for (pb_size_t i = 0; i < decoded->devices_count; i++) {
+                        Json::Value dev(Json::objectValue);
+                        char macStr[18];
+                        snprintf(macStr, sizeof(macStr), "%02X:%02X:%02X:%02X:%02X:%02X", decoded->devices[i].mac[0],
+                                 decoded->devices[i].mac[1], decoded->devices[i].mac[2], decoded->devices[i].mac[3],
+                                 decoded->devices[i].mac[4], decoded->devices[i].mac[5]);
+                        dev["mac"] = macStr;
+                        dev["type"] = (decoded->devices[i].type == meshtastic_Paxcount_SniffType_BLE) ? "BLE" : "WiFi";
+                        dev["vendor"] = decoded->devices[i].vendor;
+                        devices.append(dev);
+                    }
+                    msgPayload["devices"] = devices;
+                }
                 jsonObj["payload"] = msgPayload;
             } else if (shouldLog) {
                 LOG_ERROR(errStr, msgType.c_str());

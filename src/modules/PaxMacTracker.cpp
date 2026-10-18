@@ -198,6 +198,33 @@ const char *PaxMacTracker::getVendorName(const uint8_t *mac)
     return "";
 }
 
+size_t PaxMacTracker::populatePaxcountDevices(const PaxDetectedMac *batch, size_t count, meshtastic_Paxcount &out)
+{
+    if (!batch || count == 0) {
+        out.devices_count = 0;
+        return 0;
+    }
+
+    constexpr size_t maxProtoDevices = sizeof(out.devices) / sizeof(out.devices[0]);
+    if (count > maxProtoDevices)
+        count = maxProtoDevices;
+
+    for (size_t i = 0; i < count; i++) {
+        memcpy(out.devices[i].mac, batch[i].mac, sizeof(out.devices[i].mac));
+        out.devices[i].type =
+            (batch[i].type == PAX_SNIFF_BLE) ? meshtastic_Paxcount_SniffType_BLE : meshtastic_Paxcount_SniffType_WIFI;
+        const char *vendor = getVendorName(batch[i].mac);
+        if (vendor) {
+            strncpy(out.devices[i].vendor, vendor, sizeof(out.devices[i].vendor) - 1);
+            out.devices[i].vendor[sizeof(out.devices[i].vendor) - 1] = '\0';
+        } else {
+            out.devices[i].vendor[0] = '\0';
+        }
+    }
+    out.devices_count = (pb_size_t)count;
+    return count;
+}
+
 size_t PaxMacTracker::formatMacMessage(const PaxDetectedMac *batch, size_t count, char *out, size_t outLen)
 {
     if (!batch || count == 0 || !out || outLen == 0)

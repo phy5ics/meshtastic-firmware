@@ -1,5 +1,6 @@
 #pragma once
 
+#include "meshtastic/paxcount.pb.h"
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -41,5 +42,6 @@ class PaxMacTracker
 
     static bool isRandomizedMac(const uint8_t *mac);
     static const char *getVendorName(const uint8_t *mac);
+    static size_t populatePaxcountDevices(const PaxDetectedMac *batch, size_t count, meshtastic_Paxcount &out);
     static size_t formatMacMessage(const PaxDetectedMac *batch, size_t count, char *out, size_t outLen);
 };
